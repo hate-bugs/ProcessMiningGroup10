@@ -1,0 +1,9 @@
+agent_type,decision,cases,share_within_agent_type
+Type 1: Dominant low-cost pools,Mine,2812,0.9763888888888889
+Type 1: Dominant low-cost pools,Skip,68,0.02361111111111111
+Type 2: Large efficient pools,Mine,12857,0.8928472222222222
+Type 2: Large efficient pools,Skip,1543,0.10715277777777778
+Type 3: Lower/mid-scale pools,Mine,20500,0.7908950617283951
+Type 3: Lower/mid-scale pools,Skip,5420,0.20910493827160495
+Type 4: Small outside-network pools,Mine,88515,0.6146875
+Type 4: Small outside-network pools,Skip,55485,0.3853125

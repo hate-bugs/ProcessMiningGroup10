@@ -1,0 +1,8 @@
+rule,fitting_cases,violating_cases,fit_share
+starts_with_observe,187200,0,1.0
+ends_validly,187200,0,1.0
+skip_did_not_consume,187200,0,1.0
+win_has_reward,187200,0,1.0
+reward_requires_win,187200,0,1.0
+lose_has_no_reward,187200,0,1.0
+mining_requires_consumption,187200,0,1.0

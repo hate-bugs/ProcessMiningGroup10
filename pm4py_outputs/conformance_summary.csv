@@ -1,0 +1,4 @@
+trace_conformance,cases,share
+Expected mine-loss path,123244,0.6583547008547008
+Expected skip path,62516,0.33395299145299145
+Expected mine-win path,1440,0.007692307692307693

@@ -1,0 +1,4 @@
+variant,cases,share
+Observe_Market → Evaluate_Hashrate_Allocation → Choose_Hashrate_Allocation → Start_Mining → Consume_Electricity → Lose_Block → Update_Profit,123244,0.6583547008547008
+Observe_Market → Evaluate_Hashrate_Allocation → Choose_Hashrate_Allocation → Skip_Mining,62516,0.33395299145299145
+Observe_Market → Evaluate_Hashrate_Allocation → Choose_Hashrate_Allocation → Start_Mining → Consume_Electricity → Win_Block → Receive_Reward → Update_Profit,1440,0.007692307692307693
