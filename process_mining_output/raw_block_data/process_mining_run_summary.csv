@@ -1,0 +1,14 @@
+,value
+source_file,bitcoin_mining_data\final\block_level_market_data_20250505_20260505.csv
+blocks_used_as_cases,52669
+events_created,316014
+activities,27
+variants,2499
+dfg_edges,72
+outlier_cases,35072
+event_log_csv,process_mining_output\raw_block_data\raw_block_pm4py_event_log.csv
+variant_summary_csv,process_mining_output\raw_block_data\variant_summary.csv
+activity_frequency_csv,process_mining_output\raw_block_data\activity_frequency.csv
+dfg_edges_csv,process_mining_output\raw_block_data\dfg_edges.csv
+fallback_dfg_png,process_mining_output\raw_block_data\fallback_complete_raw_block_process_map.png
+fallback_outlier_dfg_png,process_mining_output\raw_block_data\fallback_outlier_raw_block_process_map.png

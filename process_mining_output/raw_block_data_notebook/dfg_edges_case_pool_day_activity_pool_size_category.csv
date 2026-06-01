@@ -1,0 +1,5 @@
+source,target,frequency
+Pool_Size::Dominant_gt_10pct,Pool_Size::Dominant_gt_10pct,35160
+Pool_Size::Medium_1_5pct,Pool_Size::Medium_1_5pct,7368
+Pool_Size::Large_5_10pct,Pool_Size::Large_5_10pct,3966
+Pool_Size::Small_lt_1pct,Pool_Size::Small_lt_1pct,576

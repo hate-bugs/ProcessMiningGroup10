@@ -1,0 +1,5 @@
+activity,event_count,event_share
+Pool_Size::Dominant_gt_10pct,36620,0.6951800596085578
+Pool_Size::Medium_1_5pct,9761,0.18529908688801563
+Pool_Size::Large_5_10pct,4331,0.08221804582645177
+Pool_Size::Small_lt_1pct,1965,0.03730280767697477

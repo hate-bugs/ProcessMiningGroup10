@@ -1,0 +1,13 @@
+case_perspective,activity_perspective,events,cases,activities,variants,dfg_edges,avg_events_per_case
+case_day,activity_fee_category,52677,365,3,365,9,144.32054794520548
+case_day,activity_pool_size_category,52677,365,4,365,16,144.32054794520548
+case_day,activity_pool_type,52677,365,3,365,9,144.32054794520548
+case_difficulty_epoch,activity_fee_category,52677,27,3,27,9,1951.0
+case_difficulty_epoch,activity_pool_size_category,52677,27,4,27,16,1951.0
+case_difficulty_epoch,activity_pool_type,52677,27,3,27,9,1951.0
+case_pool_day,activity_fee_category,52677,5607,3,2638,9,9.39486356340289
+case_pool_day,activity_pool_size_category,52677,5607,4,103,4,9.39486356340289
+case_pool_day,activity_pool_type,52677,5607,3,92,3,9.39486356340289
+case_rolling_144_block_window,activity_fee_category,52677,366,3,366,9,143.9262295081967
+case_rolling_144_block_window,activity_pool_size_category,52677,366,4,366,16,143.9262295081967
+case_rolling_144_block_window,activity_pool_type,52677,366,3,366,9,143.9262295081967
