@@ -3,6 +3,10 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+#data files
+output_mas/
+bitcoin_mining_data/
+
 # C extensions
 *.so
 
