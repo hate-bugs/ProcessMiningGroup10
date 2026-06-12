@@ -1,9 +1,0 @@
-cascade_variant,blocks,share
-Type4_AllMine → Type3_AllMine → Type2_AllMine → Type1_AllMine,767,0.5326388888888889
-Type4_Mixed → Type3_AllMine → Type2_AllMine → Type1_AllMine,248,0.17222222222222222
-Type4_AllSkip → Type3_Mixed → Type2_AllMine → Type1_AllMine,121,0.08402777777777778
-Type4_AllSkip → Type3_AllSkip → Type2_Mixed → Type1_AllMine,98,0.06805555555555555
-Type4_AllSkip → Type3_AllSkip → Type2_AllSkip → Type1_Mixed,68,0.04722222222222222
-Type4_AllSkip → Type3_AllMine → Type2_AllMine → Type1_AllMine,60,0.041666666666666664
-Type4_AllSkip → Type3_AllSkip → Type2_AllSkip → Type1_AllMine,48,0.03333333333333333
-Type4_AllSkip → Type3_AllSkip → Type2_AllMine → Type1_AllMine,30,0.020833333333333332

@@ -1,6 +1,0 @@
-agent_type,Lose,Skip,Win,All
-Type 1: Dominant low-cost pools,2524,68,288,2880
-Type 2: Large efficient pools,12409,1543,448,14400
-Type 3: Lower/mid-scale pools,20202,5420,298,25920
-Type 4: Small outside-network pools,88109,55485,406,144000
-All,123244,62516,1440,187200
