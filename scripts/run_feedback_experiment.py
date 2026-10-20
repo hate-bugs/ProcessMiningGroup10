@@ -41,7 +41,7 @@ def main():
         and any(isinstance(target, ast.Name) and target.id == "params" for target in node.targets)
     )
     exec(compile(ast.Module(body=[assignment], type_ignores=[]), "<notebook params>", "exec"), scope.__dict__)
-    output = ROOT / "output_mas" / "feedback"
+    output = ROOT / "output_mas" / "daily_feedback"
     output.mkdir(parents=True, exist_ok=True)
 
     def save_plot():

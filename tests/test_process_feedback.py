@@ -36,7 +36,7 @@ NB = load_notebook_model()
 def model(**overrides):
     kwargs = dict(
         n_agents=1, cycles=1, seed=9, hardware_failure_prob=0,
-        cost_per_hash_factor=0, block_reward_coins=0, imitation_rate=0,
+        cost_per_hash_factor=0, daily_reward_coins=0, imitation_rate=0, initial_hardware_age_days=0,
     )
     kwargs.update(overrides)
     return NB.AdaptiveMiningModel(NB.MiningParams(**kwargs))
@@ -45,117 +45,191 @@ def model(**overrides):
 def force_action(m, action):
     for agent in m.agents:
         agent.choose_action = lambda: action
+        agent.choose_capital_action = lambda agent=agent: "hold_hardware" if agent.capital_review_due() else "no_review"
 
 
 class AccountingTests(unittest.TestCase):
-    def test_pause_without_miners_settles_once_without_pseudo_reward(self):
+    def test_pause_settles_once_and_depreciates_without_fake_operating_reward(self):
         m = model()
         agent = next(iter(m.agents))
         old = agent.action_values["pause"]
         force_action(m, "pause")
         m.run_model()
         self.assertEqual(len(m.decision_log), 1)
-        self.assertEqual(m.decision_log[0]["economic_profit"], 0)
+        self.assertLess(m.decision_log[0]["economic_profit"], 0)
+        self.assertEqual(m.decision_log[0]["mining_profit"], 0)
         self.assertAlmostEqual(agent.action_values["pause"], old * (1 - m.params.learning_rate))
-        self.assertEqual(agent.recent_profits, [0])
-        self.assertFalse(m.decision_log[0]["terminal"])  # time limit is censoring
+        self.assertFalse(m.decision_log[0]["terminal"])
 
-    def test_investment_records_cash_spend_and_resale_haircut(self):
+    def test_repair_preserves_age_and_recovers_asset_value(self):
         m = model()
         agent = next(iter(m.agents))
-        before_cash = agent.capital
-        spend = min(before_cash * (0.04 + 0.24 * agent.risk_tolerance), before_cash - 40)
-        expected_loss = spend * (m.params.resale_value_fraction * agent.hardware_efficiency - 1)
-        force_action(m, "invest")
-        m.run_model()
-        self.assertAlmostEqual(agent.capital, before_cash - spend)
-        self.assertAlmostEqual(m.decision_log[0]["economic_profit"], expected_loss)
-        self.assertAlmostEqual(
-            m.decision_log[0]["normalized_reward"], expected_loss / agent.initial_net_worth
-        )
+        agent.fleet.damage(0.2)
+        before = agent.net_worth()
+        age = agent.fleet.lots[0].age_days
+        repaired, cost = agent.fleet.repair(1000)
+        agent.capital -= cost
+        self.assertGreater(repaired, 0)
+        self.assertAlmostEqual(agent.net_worth(), before)
+        self.assertEqual(agent.fleet.lots[0].age_days, age)
 
-    def test_repair_is_asset_recovery_not_free_profit(self):
-        m = model()
+    def test_uneconomic_repair_cost_reaches_operating_learner(self):
+        m = model(repair_cost_per_hash=200)
         agent = next(iter(m.agents))
-        agent.damaged_hash = 2
-        agent.needs_repair = True
-        before_cash = agent.capital
+        agent.fleet.damage(0.1)
+        old = agent.action_values["repair"]
         force_action(m, "repair")
         m.run_model()
-        self.assertAlmostEqual(agent.capital, before_cash - 6)
-        self.assertAlmostEqual(agent.damaged_hash, 0)
-        self.assertAlmostEqual(m.decision_log[0]["economic_profit"], 0)
+        reward = m.decision_log[0]["learning_reward"]
+        self.assertLess(reward, 0)
+        self.assertAlmostEqual(agent.action_values["repair"], old + m.params.learning_rate * (reward - old))
 
-    def test_investment_reward_does_not_redefine_operating_loss_tolerance(self):
-        m = model(cycles=15)
-        force_action(m, "invest")
-        m.run_model()
-        agent = next(iter(m.agents))
-        self.assertTrue(agent.active)
-        self.assertEqual(agent.recent_profits, [0] * m.params.max_recent_profit_memory)
-        self.assertLess(m.decision_log_df()["economic_profit"].sum(), 0)
-
-    def test_sale_exchanges_assets_for_cash(self):
+    def test_sale_exchanges_assets_for_cash_at_age_dependent_value(self):
         m = model()
         agent = next(iter(m.agents))
-        before_cash = agent.capital
-        force_action(m, "sell_hardware")
-        m.run_model()
-        self.assertGreater(agent.capital, before_cash)
-        self.assertAlmostEqual(m.decision_log[0]["economic_profit"], 0)
-
-    def test_minimum_hash_cannot_create_sale_or_damage_value(self):
-        m = model(hardware_failure_prob=1)
-        agent = next(iter(m.agents))
-        agent.hash_power = m.params.min_hash_power
-        before_cash = agent.capital
-        force_action(m, "sell_hardware")
-        m.run_model()
-        self.assertEqual(agent.hash_power, m.params.min_hash_power)
-        self.assertEqual(agent.damaged_hash, 0)
-        self.assertFalse(agent.needs_repair)
-        self.assertEqual(agent.capital, before_cash)
-        self.assertAlmostEqual(m.decision_log[0]["economic_profit"], 0)
-
-    def test_voluntary_exit_learns_once_and_freezes_assets(self):
-        m = model(cycles=5)
-        agent = next(iter(m.agents))
         before = agent.net_worth()
-        old = agent.action_values["exit"]
+        old_hash = agent.hash_power
+        sold, cash = agent.fleet.sell(old_hash * 0.2)
+        agent.capital += cash
+        self.assertAlmostEqual(agent.net_worth(), before)
+        self.assertAlmostEqual(agent.hash_power, old_hash - sold)
+
+    def test_orders_do_not_mine_before_delivery(self):
+        m = model(delivery_delay_days=3)
+        agent = next(iter(m.agents))
+        old_hash = agent.hash_power
+        before = agent.net_worth()
+        agent.capital -= 80
+        agent.fleet.order(1, 80, day=1)
+        self.assertAlmostEqual(agent.net_worth(), before)
+        self.assertEqual(agent.hash_power, old_hash)
+        self.assertEqual(agent.fleet.advance_day(3)[0], 0)
+        self.assertEqual(agent.fleet.advance_day(4)[0], 1)
+        self.assertEqual(agent.hash_power, old_hash + 1)
+        self.assertEqual(agent.fleet.pending_hash, 0)
+
+    def test_old_hardware_retires_and_pays_residual_value(self):
+        m = model(hardware_lifetime_days=2, initial_hardware_age_days=1)
+        agent = next(iter(m.agents))
+        expected_salvage = agent.hash_power * agent.fleet.lots[0].unit_cost * m.params.residual_value_fraction
+        cash = agent.capital
+        force_action(m, "pause")
+        m.run_model()
+        self.assertEqual(agent.hash_power, 0)
+        self.assertAlmostEqual(agent.capital, cash + expected_salvage)
+        self.assertTrue(any(e["activity"] == "Hardware retired" for e in m.event_log))
+
+    def test_capital_review_calendar_and_cooldown(self):
+        m = model(cycles=100)
+        agent = next(iter(m.agents))
+        for day in range(1, 101):
+            m.steps = day
+            self.assertEqual(agent.capital_review_due(), day in [1, 31, 61, 91])
+        agent.last_capital_trade_day = 1
+        m.steps = 31
+        self.assertEqual(agent.legal_capital_actions(), ["hold_hardware"])
+        m.steps = 91
+        self.assertIn("sell_hardware", agent.legal_capital_actions())
+        self.assertNotIn("invest", agent.legal_actions())
+        self.assertNotIn("sell_hardware", agent.legal_actions())
+
+    def test_capital_learning_waits_for_observed_horizon(self):
+        m = model(cycles=180)
+        agent = next(iter(m.agents))
+        force_action(m, "pause")
+        for _ in range(179):
+            m.step()
+        self.assertEqual(agent.capital_updates, 0)
+        m.step()
+        self.assertEqual(agent.capital_updates, 1)
+        self.assertGreater(len(agent.capital_credit_queue), 0)
+        m.finalize_run()
+        self.assertEqual(agent.capital_updates, 1)  # no labels from truncated futures
+
+    def test_exit_liquidates_and_cancels_orders(self):
+        m = model(cycles=4)
+        agent = next(iter(m.agents))
+        agent.capital -= 80
+        agent.fleet.order(1, 80, day=0)
         force_action(m, "exit")
         m.run_model()
         self.assertEqual(len(m.decision_log), 1)
         self.assertTrue(m.decision_log[0]["terminal"])
-        self.assertEqual(agent.exit_reason, "voluntary_exit")
-        self.assertEqual(agent.net_worth(), before)
-        self.assertAlmostEqual(agent.action_values["exit"], old * (1 - m.params.learning_rate))
-        self.assertEqual(len(m.model_history), 6)
+        self.assertEqual(agent.hash_power, 0)
+        self.assertEqual(agent.fleet.pending_hash, 0)
+        self.assertEqual(agent.net_worth(), agent.capital)
+        self.assertLess(m.decision_log[0]["economic_profit"], -7.99)
 
-    def test_automatic_bankruptcy_settles_paused_agent(self):
+    def test_automatic_exit_includes_order_cancellation_in_economic_reward(self):
         m = model()
         agent = next(iter(m.agents))
         agent.capital = 10
+        agent.fleet.order(1, 80, day=1)
         force_action(m, "pause")
         m.run_model()
+        row = m.decision_log[0]
         self.assertEqual(agent.exit_reason, "bankruptcy")
-        self.assertEqual(len(m.decision_log), 1)
-        self.assertTrue(m.decision_log[0]["terminal"])
+        self.assertAlmostEqual(row["economic_profit"], row["net_worth_after"] - row["net_worth_before"])
+        self.assertLess(row["learning_reward"], 0)
+        self.assertEqual(agent.fleet.pending_hash, 0)
 
-    def test_returns_reconcile_to_final_assets_with_shocks(self):
-        m = model(n_agents=25, cycles=30, hardware_failure_prob=0.3,
-                  block_reward_coins=0.2, cost_per_hash_factor=0.025)
+    def test_returns_reconcile_with_ageing_orders_and_exit(self):
+        m = model(n_agents=15, cycles=210, hardware_failure_prob=0.05,
+                  daily_reward_coins=1, cost_per_hash_factor=0.5)
         m.run_model()
         decisions = m.decision_log_df()
         agents = m.agent_summary_df().set_index("agent_id")
         rewards = decisions.groupby("agent_id")["economic_profit"].sum()
-        np.testing.assert_allclose(rewards, agents.loc[rewards.index, "economic_profit"], atol=1e-9)
+        np.testing.assert_allclose(rewards, agents.loc[rewards.index, "economic_profit"], atol=1e-8)
         self.assertFalse(decisions.duplicated(["agent_id", "cycle"]).any())
-        self.assertTrue(np.isfinite(decisions["normalized_reward"]).all())
+        reviews = decisions[decisions.capital_action != "no_review"]
+        for _, group in reviews.groupby("agent_id"):
+            self.assertTrue((np.diff(group.cycle) == 30).all())
+        trades = decisions[decisions.capital_action.isin(["invest", "sell_hardware"])]
+        for _, group in trades.groupby("agent_id"):
+            self.assertTrue((np.diff(group.cycle) >= 90).all())
         for _, group in decisions.groupby("agent_id"):
             self.assertFalse(group["terminal"].iloc[:-1].any())
-        count = len(m.event_log)
-        m.finalize_run()
-        self.assertEqual(len(m.event_log), count)
+
+    def test_blocks_are_batched_and_energy_is_charged_once_daily(self):
+        m = model(n_agents=3, daily_reward_coins=1, cost_per_hash_factor=0.5)
+        force_action(m, "mine")
+        m.run_model()
+        self.assertEqual(len(m.decision_log), 3)
+        self.assertGreater(m.blocks_today, 100)
+        self.assertEqual(m.mined_blocks_today, m.blocks_today)
+        expected = m.blocks_today * m.params.daily_reward_coins * m.coin_price / m.params.expected_blocks_per_day
+        self.assertAlmostEqual(m.paid_rewards_today + m.pool_fees_today, expected)
+        for agent in m.agents:
+            self.assertEqual(agent.times_mined, 1)
+            self.assertAlmostEqual(agent.total_costs, agent.expected_cost())
+
+    def test_zero_block_day_still_charges_energy(self):
+        m = model(cost_per_hash_factor=0.5)
+        agent = next(iter(m.agents))
+        agent.last_action = "mine"
+        m.blocks_today = 0
+        m.block_uniforms = np.array([])
+        m.run_mining_round()
+        self.assertEqual(m.paid_rewards_today, 0)
+        self.assertGreater(agent.total_costs, 0)
+
+    def test_pool_reward_budget_is_conserved(self):
+        m = model(n_agents=4, daily_reward_coins=1)
+        force_action(m, "mine")
+        for agent in m.agents:
+            agent.pool_id = 1
+        m.run_model()
+        self.assertAlmostEqual(m.pool_fees_today, m.gross_rewards_today * m.params.pool_fee)
+        self.assertAlmostEqual(m.paid_rewards_today + m.pool_fees_today, m.gross_rewards_today)
+
+    def test_expected_daily_issuance_does_not_scale_with_block_resolution(self):
+        for blocks in (1, 144, 288):
+            m = model(daily_reward_coins=1, expected_blocks_per_day=blocks)
+            m.blocks_today = blocks
+            m.block_uniforms = np.linspace(0, 1, blocks, endpoint=False)
+            m.run_mining_round()
+            self.assertAlmostEqual(m.gross_rewards_today, m.coin_price)
 
 
 def synthetic_decisions():
@@ -224,6 +298,21 @@ class AdviserTests(unittest.TestCase):
         restored = ProcessAdviser(horizon=1, min_support=2).fit(data)
         pd.testing.assert_frame_equal(original.table, restored.table)
 
+    def test_capital_windows_include_days_between_reviews(self):
+        data = synthetic_decisions()
+        data["normalized_reward"] = 1.0
+        data["capital_action"] = np.where(data.cycle.isin([1, 4, 7]), "hold_hardware", "no_review")
+        data["capital_context"] = data["context"]
+        data["previous_capital_action"] = np.where(data.cycle == 1, "START", "hold_hardware")
+        data["initial_net_worth"] = 100.0
+        data["net_worth_before"] = 100.0
+        data["capital_wealth_before"] = 102.0
+        adviser = ProcessAdviser(horizon=3, decision_kind="capital").fit(data)
+        self.assertEqual(adviser.table["support"].sum(), 36)
+        self.assertNotIn("no_review", set(adviser.table.action))
+        first = adviser.table[adviser.table.history == "START"]
+        self.assertTrue(np.allclose(first.mean_return, 2.98))
+
     def test_missing_cycles_and_duplicate_decisions_are_rejected(self):
         data = synthetic_decisions()
         with self.assertRaises(ValueError):
@@ -256,7 +345,8 @@ class PairedScenarioTests(unittest.TestCase):
             second.step()
             np.testing.assert_array_equal(first.failure_uniforms, second.failure_uniforms)
             np.testing.assert_array_equal(first.failure_fractions, second.failure_fractions)
-            self.assertEqual(first.lottery_uniform, second.lottery_uniform)
+            self.assertEqual(first.blocks_today, second.blocks_today)
+            np.testing.assert_array_equal(first.block_uniforms, second.block_uniforms)
             self.assertEqual(first.coin_price, second.coin_price)
             self.assertEqual(first.energy_grids, second.energy_grids)
 

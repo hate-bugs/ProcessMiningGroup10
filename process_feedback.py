@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 
-def decision_outcomes(decisions: pd.DataFrame, horizon: int = 5) -> pd.DataFrame:
+def decision_outcomes(decisions: pd.DataFrame, horizon: int = 30) -> pd.DataFrame:
     """Attach forward returns without crossing agents/runs or incomplete windows.
 
     A terminal exit has zero subsequent return (assets are frozen). A simulation
@@ -61,8 +61,8 @@ class ProcessAdviser:
     """
 
     def __init__(
-        self, horizon=5, min_support=20, min_agents=5, min_runs=2,
-        shrinkage=50.0, use_sequence=True,
+        self, horizon=30, min_support=20, min_agents=5, min_runs=2,
+        shrinkage=50.0, use_sequence=True, decision_kind="operating",
     ):
         if min(horizon, min_support, min_agents, min_runs) < 1 or shrinkage <= 0:
             raise ValueError("Support thresholds and shrinkage must be positive")
@@ -72,6 +72,9 @@ class ProcessAdviser:
         self.min_runs = min_runs
         self.shrinkage = shrinkage
         self.use_sequence = use_sequence
+        if decision_kind not in {"operating", "capital"}:
+            raise ValueError("Unknown decision kind")
+        self.decision_kind = decision_kind
         self.table = pd.DataFrame()
         self.training_run_ids = frozenset()
         self._lookup = {}
@@ -79,6 +82,16 @@ class ProcessAdviser:
 
     def fit(self, decisions: pd.DataFrame):
         data = decision_outcomes(decisions, self.horizon)
+        if self.decision_kind == "capital":
+            # Compute financial windows on ALL days before selecting review days.
+            # Review histories span calendar gaps; the economic log must not.
+            data = data[data["capital_action"] != "no_review"].copy()
+            data["context"] = data["capital_context"]
+            data["previous_action"] = data["previous_capital_action"]
+            data["action"] = data["capital_action"]
+            data["forward_return"] -= (
+                data["capital_wealth_before"] - data["net_worth_before"]
+            ) / data["initial_net_worth"]
         self.training_run_ids = frozenset(decisions["run_id"].unique())
         self._lookup = {}
         self.table = pd.DataFrame()
