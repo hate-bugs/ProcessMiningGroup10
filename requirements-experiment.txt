@@ -1,0 +1,6 @@
+# Exact versions used for the recorded experiment; sections 8-12 additionally use pm4py.
+mesa==3.3.1
+numpy==2.4.2
+pandas==2.3.3
+matplotlib==3.10.8
+scipy==1.17.0
