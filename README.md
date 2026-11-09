@@ -107,6 +107,12 @@ assignment, continuing agent cases, and strict chronological feedback.
 
 ## Supplementary permanent-shutdown experiment
 
+For the updated shutdown study and the temporary operating-cost shock, see
+[the common robustness framework](ROBUSTNESS_EXPERIMENTS.md). The current runner
+supports `--experiment shutdown` and `--experiment cost-shock` and writes unique,
+versioned run directories without replacing historical results.
+The completed studies and figures are in [the v2 results bundle](reports/robustness_v2/RESULTS.md).
+
 The completed sweep, full results table, figure, and suggested manuscript subsection
 are available in [the disruption experiment report](reports/disruption/REPORT.md).
 
@@ -134,11 +140,12 @@ actual notebook model without changing the original simulation or its saved outp
 .venv/Scripts/python.exe scripts/run_disruption_experiment.py --workers 2
 ```
 
-The full sweep runs 288 markets and saves `REPORT.md`, a PNG/PDF figure, seed-level
+The original full sweep ran 288 markets and saved `REPORT.md`, a PNG/PDF figure, seed-level
 effects, checkpoint outcomes, daily market metrics, final agent records, shutdown
 events, fit audits, target assignments and a source/version manifest in
-`output_mas/disruption_sweep/`. Smoke outputs are separated into
-`output_mas/disruption_smoke/`; `--output` selects a different destination.
+`output_mas/disruption_sweep/`. These historical results remain available. New
+runs use `output_mas/disruption_v2/` or `output_mas/cost_shock_v2/`, with a unique
+subdirectory per invocation. `--output` can select an empty or new destination.
 
 This is an exploratory robustness check with correlated, unadjusted severity
 comparisons. A positive final advantage can contain gains accumulated before the

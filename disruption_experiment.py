@@ -1,4 +1,4 @@
-"""Supplementary permanent-shutdown severity sweep using the notebook model.
+"""Paired shutdown and temporary-cost interventions using the notebook model.
 
 Shutdowns are exogenous closures with liquidation, not hardware destruction.
 They happen before operating decisions on the intervention day. Forced records
@@ -19,6 +19,22 @@ from process_policy import TransitionProcessAdviser
 
 
 DEFAULT_SEVERITIES = [0, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+
+
+@dataclass(frozen=True)
+class CostShockPlan:
+    start_day: int = 360
+    end_day: int = 540  # exclusive: baseline costs resume at the start of this day
+    multiplier: float = 2.0
+
+    def __post_init__(self):
+        if self.start_day < 2 or self.end_day <= self.start_day:
+            raise ValueError("Cost shock needs a pre-intervention day and a positive interval")
+        if not np.isfinite(self.multiplier) or self.multiplier <= 0:
+            raise ValueError("Cost multiplier must be finite and positive")
+
+    def at(self, day):
+        return self.multiplier if self.start_day <= day < self.end_day else 1.0
 
 
 @dataclass(frozen=True)
@@ -45,13 +61,25 @@ class ShutdownPlan:
 def shutdown_model_class(base_class):
     """Extend the actual notebook model at its existing start-of-day hook."""
     class ShutdownMiningModel(base_class):
-        def __init__(self, *args, shutdown_plan=None, **kwargs):
+        def __init__(self, *args, shutdown_plan=None, cost_shock_plan=None, **kwargs):
+            if shutdown_plan is not None and cost_shock_plan is not None:
+                raise ValueError("Use one intervention per experiment")
             self.shutdown_plan = shutdown_plan
+            self.cost_shock_plan = cost_shock_plan
+            self.applied_cost_multiplier = 1.0
             self.shutdown_audit = None
             super().__init__(*args, **kwargs)
 
         def update_environment(self):
             super().update_environment()
+            # The original method redraws each day's grid prices from its own
+            # exogenous stream. Multiplication therefore never compounds, and
+            # disappears exactly on end_day. Existing profitability, reserve,
+            # investment and mine/pause decisions all see the changed prices.
+            self.applied_cost_multiplier = self.cost_shock_plan.at(self.steps) if self.cost_shock_plan else 1.0
+            if self.applied_cost_multiplier != 1.0:
+                self.energy_grids = {grid: price * self.applied_cost_multiplier
+                                     for grid, price in self.energy_grids.items()}
             plan = self.shutdown_plan
             if plan is None or self.steps != plan.day:
                 return
@@ -104,7 +132,7 @@ def voluntary_history(model, day, window):
 
 def disruption_protocol(smoke=False):
     p = online_protocol(smoke)
-    return dict(smoke=smoke, n_agents=p["n_agents"],
+    return dict(experiment="shutdown", smoke=smoke, n_agents=p["n_agents"],
                 days=12 if smoke else 780, shutdown_day=6 if smoke else 360,
                 severities=[0, 10, 100] if smoke else DEFAULT_SEVERITIES,
                 seeds=[99401, 99402] if smoke else list(range(29101, 29109)),
@@ -114,37 +142,121 @@ def disruption_protocol(smoke=False):
                 learning_rate=0.18, exploration_rate=0.09)
 
 
+def cost_shock_protocol(smoke=False):
+    p = disruption_protocol(smoke)
+    p.update(experiment="cost_shock", cost_multipliers=[1.0, 2.0],
+             shock_end_day=9 if smoke else 540)
+    p.pop("severities")
+    return p
+
+
+def scenario_values(protocol):
+    return protocol["cost_multipliers"] if protocol.get("experiment") == "cost_shock" else protocol["severities"]
+
+
+def baseline_value(protocol):
+    return 1.0 if protocol.get("experiment") == "cost_shock" else 0.0
+
+
+def validate_disruption_protocol(p):
+    if not 2 <= p["shutdown_day"] < p["days"]:
+        raise ValueError("Intervention must have a preceding reference day and follow-up")
+    if p["n_agents"] < 4 or p["n_agents"] % 2:
+        raise ValueError("Use an even population of at least four")
+    if len(set(p["seeds"])) != len(p["seeds"]) or len(p["seeds"]) < 2:
+        raise ValueError("Use at least two distinct independent seeds")
+    values = scenario_values(p)
+    if not values or len(set(values)) != len(values) or baseline_value(p) not in values:
+        raise ValueError("Scenarios must be unique and include the no-intervention baseline")
+    if p.get("experiment") == "cost_shock":
+        if p["shock_end_day"] > p["days"]:
+            raise ValueError("Include a recovery phase after the cost shock")
+        for value in values:
+            CostShockPlan(p["shutdown_day"], p["shock_end_day"], value)
+    else:
+        for value in values:
+            ShutdownPlan(p["shutdown_day"], value)
+
+
 def run_market(base_class, base_params, protocol, seed, percentage, family, swap):
     p = protocol
+    cost_shock = p.get("experiment") == "cost_shock"
     params = replace(base_params, n_agents=p["n_agents"], cycles=p["days"], seed=seed,
                      daily_reward_coins=base_params.daily_reward_coins * p["n_agents"] / base_params.n_agents,
                      cost_per_hash_factor=6.2, energy_shock_prob=.14,
                      energy_shock_multiplier_min=2.5, energy_shock_multiplier_max=4.5,
                      learning_rate=p["learning_rate"], exploration_rate=p["exploration_rate"], pm_weight=0.)
     model_class = shutdown_model_class(base_class)
-    run_id = f"shutdown-{percentage:g}-{family}-{seed}-swap{int(swap)}"
-    model = model_class(params, run_id=run_id,
-                        shutdown_plan=ShutdownPlan(p["shutdown_day"], percentage, seed))
+    run_id = f"{'cost-shock' if cost_shock else 'shutdown'}-{percentage:g}-{family}-{seed}-swap{int(swap)}"
+    intervention = dict(cost_shock_plan=CostShockPlan(p["shutdown_day"], p["shock_end_day"], percentage)) if cost_shock else dict(
+        shutdown_plan=ShutdownPlan(p["shutdown_day"], percentage, seed))
+    model = model_class(params, run_id=run_id, **intervention)
     treated = assigned_agents(p["n_agents"], seed, swap) if family == "process" else set()
     for agent in model.agents:
         agent._pm_weight = p["weight"] if agent.unique_id in treated else 0.
-    meta = dict(seed=seed, severity_pct=percentage, family=family, swap=int(swap), run_id=run_id)
+    meta = dict(seed=seed, scenario_value=percentage, family=family, swap=int(swap), run_id=run_id)
+    meta["cost_multiplier" if cost_shock else "severity_pct"] = percentage
     checkpoints = {1, p["shutdown_day"] - 1, p["shutdown_day"], p["shutdown_day"] + 1, p["days"]}
-    snapshots, fits = [], []
+    if cost_shock:
+        checkpoints.update([p["shock_end_day"] - 1, p["shock_end_day"], p["shock_end_day"] + 1])
+    snapshots, fits, cohort_daily = [], [], []
     target_ids = set()
+    original_agents = list(model.agents)
+    original_ids = {a.unique_id for a in original_agents}
+    cohorts = {"market": original_agents}
+    if family == "process":
+        cohorts.update(pm=[a for a in original_agents if a.unique_id in treated],
+                       control=[a for a in original_agents if a.unique_id not in treated])
+    reference_wealth = None
     for day in range(1, p["days"] + 1):
+        before = {a.unique_id: (a.total_rewards, a.total_costs, a.times_mined) for a in original_agents}
+        decision_start = len(model.decision_log)
         model.step()
+        decisions = {r["agent_id"]: r for r in model.decision_log[decision_start:] if not r.get("externally_forced", False)}
+        wealth = {a.unique_id: a.net_worth() for a in original_agents}
+        if day == p["shutdown_day"] - 1:
+            reference_wealth = wealth.copy()
         if model.shutdown_audit:
             target_ids = set(model.shutdown_audit["shutdown_ids"])
+        for cohort, members in cohorts.items():
+            records = [decisions[a.unique_id] for a in members if a.unique_id in decisions]
+            rewards = sum(a.total_rewards - before[a.unique_id][0] for a in members)
+            costs = sum(a.total_costs - before[a.unique_id][1] for a in members)
+            active_count = sum(a.active for a in members)
+            cohort_daily.append(dict(**meta, day=day, cohort=cohort, initial_agents=len(members),
+                active_agents=active_count,
+                mining_participants=sum(a.times_mined > before[a.unique_id][2] for a in members),
+                decisions=len(records),
+                **{f"action_{action}": sum(r["action"] == action for r in records)
+                   for action in ["mine", "pause", "repair", "join_pool", "leave_pool", "exit"]},
+                **{f"capital_{action}": sum(r.get("capital_action") == action for r in records)
+                   for action in ["invest", "sell_hardware", "hold_hardware"]},
+                operating_cost=costs, mining_reward=rewards, net_mining_profit=rewards - costs,
+                normalized_operating_profit_pp=100 * np.mean([
+                    ((a.total_rewards - before[a.unique_id][0]) - (a.total_costs - before[a.unique_id][1])) / a.initial_net_worth
+                    for a in members]),
+                mean_net_worth=float(np.mean([wealth[a.unique_id] for a in members])),
+                mean_return_pct=100 * np.mean([(wealth[a.unique_id] - a.initial_net_worth) / a.initial_net_worth for a in members]),
+                applied_cost_multiplier=model.applied_cost_multiplier))
+            if cohort == "market":
+                model.model_history[-1]["actual_mining_participants"] = cohort_daily[-1]["mining_participants"]
+                model.model_history[-1]["deployed_hash"] = model.current_total_mining_hash
         if day % p["feedback_interval"] == 0 or day in checkpoints:
             agents = model.agent_summary_df()
-            cohorts = {"market": agents}
+            subsets = {"market": agents}
             if family == "process":
-                cohorts.update(pm=agents[agents.agent_id.isin(treated)],
+                subsets.update(pm=agents[agents.agent_id.isin(treated)],
                                control=agents[~agents.agent_id.isin(treated)])
-            for cohort, subset in cohorts.items():
+            for cohort, subset in subsets.items():
+                if reference_wealth is not None:
+                    denominator = subset.agent_id.map(reference_wealth)
+                    valid_reference = bool((denominator > 0).all())
+                    secondary = float(100 * ((subset.net_worth - denominator) / denominator).mean()) if valid_reference else np.nan
+                else:
+                    secondary, valid_reference = np.nan, False
                 snapshots.append(dict(**meta, day=day, cohort=cohort, **metrics(subset),
-                    forced_shutdown_pct=100 * subset.exit_reason.eq("external_shutdown").mean()))
+                    forced_shutdown_pct=100 * subset.exit_reason.eq("external_shutdown").mean(),
+                    return_relative_reference_wealth_pct=secondary, valid_reference_wealth=valid_reference))
         if day % p["feedback_interval"] == 0 and day < p["days"] and family == "process":
             history = voluntary_history(model, day, p["window_days"])
             adviser = TransitionProcessAdviser(discount=p["discount"], min_support=p["min_support"],
@@ -152,12 +264,15 @@ def run_market(base_class, base_params, protocol, seed, percentage, family, swap
             model.process_adviser = adviser
             fits.append(dict(**meta, update_day=day, first_affected_day=day + 1,
                 max_observed_day=int(history.cycle.max()) if len(history) else 0,
-                decisions=len(history), forced_records_used=0))
+                decisions=len(history), forced_records_used=int(history.get("externally_forced", pd.Series(dtype=bool)).eq(True).sum())))
     model.finalize_run()
     agents = model.agent_summary_df().assign(**meta)
     agents["cohort"] = np.where(agents.agent_id.isin(treated), "pm", "control")
     agents["externally_shutdown"] = agents.agent_id.isin(target_ids)
-    audit = dict(**meta, **model.shutdown_audit)
+    if {a.unique_id for a in model.agents} != original_ids:
+        raise ValueError("This fixed-cohort experiment does not support entrants or removed identities")
+    audit = dict(**meta, **(model.shutdown_audit or dict(day=p["shutdown_day"],
+        shock_end_day=p.get("shock_end_day"), eligible=None, shutdown_count=0, shutdown_ids=[])))
     audit["pm_shutdown_count"] = len(treated & target_ids)
     audit["control_shutdown_count"] = len(target_ids - treated)
     audit["params"] = asdict(params)
@@ -165,7 +280,7 @@ def run_market(base_class, base_params, protocol, seed, percentage, family, swap
     daily = model.model_history_df().assign(**meta)
     events = model.event_log_df()
     events = events[events.reason.isin(["external_shutdown", "permanent_disruption"])].assign(**meta)
-    return dict(snapshots=pd.DataFrame(snapshots), agents=agents, audit=audit,
+    return dict(snapshots=pd.DataFrame(snapshots), agents=agents, audit=audit, cohort_daily=pd.DataFrame(cohort_daily),
                 daily=daily, events=events, fits=pd.DataFrame(fits))
 
 
@@ -217,18 +332,25 @@ def summarize(snapshots, protocol):
 def export_results(results, protocol, output):
     output = Path(output)
     frames = {}
-    for key in ["snapshots", "agents", "daily", "events", "fits"]:
+    for key in ["snapshots", "agents", "daily", "events", "fits", "cohort_daily"]:
         parts = [r[key] for r in results if not r[key].empty]
         frames[key] = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
         frames[key].to_csv(output / f"{key}.csv", index=False)
     audits = [r["audit"] for r in results]
-    (output / "shutdown_audit.json").write_text(json.dumps(audits, indent=2), encoding="utf-8")
-    seeds, effects = summarize(frames["snapshots"], protocol)
-    seeds.to_csv(output / "seed_effects.csv", index=False)
-    effects.to_csv(output / "effects.csv", index=False)
-    make_figure(effects, output, protocol)
-    write_report(effects, audits, protocol, output)
-    return effects
+    audit_name = "intervention_audit.json" if protocol.get("experiment") == "cost_shock" else "shutdown_audit.json"
+    (output / audit_name).write_text(json.dumps(audits, indent=2), encoding="utf-8")
+    if protocol.get("experiment") != "cost_shock":
+        seeds, effects = summarize(frames["snapshots"], protocol)
+        seeds.to_csv(output / "seed_effects.csv", index=False)
+        effects.to_csv(output / "effects.csv", index=False)
+        make_figure(effects, output, protocol)
+        write_report(effects, audits, protocol, output)
+        # Retain the historical separate-cohort figure/CSV schema in new runs.
+        from scripts.plot_disruption_cohorts import main as plot_cohorts
+        plot_cohorts(["--input", str(output / "snapshots.csv"), "--output", str(output),
+                      "--shutdown-day", str(protocol["shutdown_day"])])
+    from robustness_analysis import export_robustness_analysis
+    return export_robustness_analysis(frames, protocol, output)
 
 
 def make_figure(effects, output, protocol):
@@ -291,8 +413,13 @@ def write_report(effects, audits, protocol, output):
 
 def manifest(protocol, completed=False):
     names = ["notebook.ipynb", "mining_hardware.py", "process_policy.py", "online_feedback_experiment.py",
-             "disruption_experiment.py", "scripts/run_disruption_experiment.py"]
-    return dict(protocol=protocol, completed=completed,
-        design="Exploratory paired permanent-closure severity sweep; no retuning",
+             "disruption_experiment.py", "robustness_analysis.py", "scripts/run_disruption_experiment.py",
+             "scripts/plot_disruption_cohorts.py"]
+    return dict(schema_version=2, protocol=protocol, completed=completed, simulation_rerun=True,
+        design="Paired intervention study; fixed cohorts; no retuning",
+        aggregation="Average complementary assignments within each seed, then resample independent seeds",
+        bootstrap=dict(samples=protocol["bootstrap_samples"], random_seed=19431, interval="95% percentile; pointwise; unadjusted"),
+        reference_day=protocol["shutdown_day"] - 1,
+        primary_metric="D(t) = [P_guided(t)-P_control(t)]_intervention - [P_guided(t)-P_control(t)]_baseline",
         packages={n: importlib.metadata.version(n) for n in ["mesa", "numpy", "pandas", "scipy", "matplotlib"]},
         source_sha256={name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in names})
