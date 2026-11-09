@@ -104,3 +104,44 @@ Exports in `output_mas/online_feedback/` (gitignored):
 Tests cover accounting, zero-weight equivalence, intact baseline scores, discovery
 and planning, action-label invariance, reward-dependent advice, censoring, randomized
 assignment, continuing agent cases, and strict chronological feedback.
+
+## Supplementary permanent-shutdown experiment
+
+The completed sweep, full results table, figure, and suggested manuscript subsection
+are available in [the disruption experiment report](reports/disruption/REPORT.md).
+
+`disruption_experiment.py` tests whether the selected full adviser's relative
+advantage persists when miners are forced permanently offline. It extends the
+actual notebook model without changing the original simulation or its saved outputs.
+
+- **Severity sweep:** 0%, 5%, 10%, then 20%-100% in ten-point steps.
+- **Intervention:** at the start of day 360, randomly close that percentage of
+  miners still active. Round fractional headcounts upward and export actual counts.
+  Larger severities use nested target sets with identical pre-intervention histories.
+- **Accounting:** existing hardware is liquidated and orders cancelled under the
+  existing refund policy. Closure is permanent, with no subsequent mining activity.
+  This represents operational shutdown with asset recovery, not asset destruction.
+- **Comparison:** 40 initial miners, 780 days, eight new seeds (29101-29108),
+  complementary 50% adviser assignments, and an all-control reference market.
+  Weight 6 and discount 0 are fixed from the original validation; no retuning.
+- **Endpoints:** guided-minus-control return, its paired change versus 0% shutdown,
+  market-return change, survival and drawdown. All initially assigned agents remain
+  in the denominators. Forced closures are logged separately and excluded from
+  adviser fitting. Bootstrap intervals use seeds after averaging complementary runs.
+
+```powershell
+.venv/Scripts/python.exe scripts/run_disruption_experiment.py --smoke
+.venv/Scripts/python.exe scripts/run_disruption_experiment.py --workers 2
+```
+
+The full sweep runs 288 markets and saves `REPORT.md`, a PNG/PDF figure, seed-level
+effects, checkpoint outcomes, daily market metrics, final agent records, shutdown
+events, fit audits, target assignments and a source/version manifest in
+`output_mas/disruption_sweep/`. Smoke outputs are separated into
+`output_mas/disruption_smoke/`; `--output` selects a different destination.
+
+This is an exploratory robustness check with correlated, unadjusted severity
+comparisons. A positive final advantage can contain gains accumulated before the
+shutdown; inspect its change versus the matched 0% run as well. At 100%, subsequent
+network production stops entirely. None of these comparisons isolates the value
+of sequence information or proves real-world resilience.
