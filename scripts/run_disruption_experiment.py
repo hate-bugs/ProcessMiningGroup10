@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 
-from disruption_experiment import (cost_shock_protocol, disruption_protocol, export_results,
+from scripts.disruption_experiment import (cost_shock_protocol, disruption_protocol, export_results,
     manifest, run_job, scenario_values, validate_disruption_protocol)
 
 
@@ -62,7 +62,7 @@ def main():
         config = output / "experiment_config.json"
         config.write_text(json.dumps(provenance, indent=2), encoding="utf-8")
         import pandas as pd
-        from robustness_analysis import export_robustness_analysis
+        from scripts.robustness_analysis import export_robustness_analysis
         frames = {key: pd.read_csv(output / f"{key}.csv") for key in ["snapshots", "cohort_daily", "daily"]}
         export_robustness_analysis(frames, protocol, output)
         provenance["completed"] = True
@@ -79,7 +79,9 @@ def main():
     try:
         validate_disruption_protocol(protocol)
         mode = "smoke" if args.smoke else "full"
-        default = Path("output_mas") / ("cost_shock_v2" if args.experiment == "cost-shock" else "disruption_v2") / f"{mode}_{uuid4().hex[:10]}"
+        category = "checks" if args.smoke else "supplementary"
+        study = "cost_shock" if args.experiment == "cost-shock" else "shutdown"
+        default = Path("output_mas") / category / study / f"{mode}_{uuid4().hex[:10]}"
         output = prepare_output(args.output or default)
     except ValueError as error:
         parser.error(str(error))

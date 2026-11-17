@@ -13,7 +13,7 @@ import json
 import numpy as np
 import pandas as pd
 
-from process_policy import TransitionProcessAdviser
+from scripts.process_policy import TransitionProcessAdviser
 
 
 METRICS = ["mean_return_pct", "median_return_pct", "mean_max_drawdown_pct", "survival_pct"]
@@ -235,7 +235,7 @@ class OnlineFeedbackExperiment:
             data.to_csv(self.output / f"{name}.csv", index=False)
         self.manifest["completed"] = True
         self.manifest["source_sha256"] = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest()
-                                         for name in ["online_feedback_experiment.py", "process_policy.py", "mining_hardware.py"]}
+                                         for name in ["scripts/online_feedback_experiment.py", "scripts/process_policy.py", "scripts/mining_hardware.py"]}
         notebook = json.loads(Path("notebook.ipynb").read_text(encoding="utf-8"))
         self.manifest["notebook_source_sha256"] = hashlib.sha256(json.dumps(
             [c["source"] for c in notebook["cells"]], ensure_ascii=False).encode()).hexdigest()

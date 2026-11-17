@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from online_feedback_experiment import bootstrap
+from scripts.online_feedback_experiment import bootstrap
 
 
 def seed_statistics(data, groups, metrics, samples):

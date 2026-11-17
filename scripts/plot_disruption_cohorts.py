@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from online_feedback_experiment import bootstrap
+from scripts.online_feedback_experiment import bootstrap
 
 
 def plot_curves(curves, severities, shutdown_day, output, filename, columns):
@@ -51,8 +51,8 @@ def plot_curves(curves, severities, shutdown_day, output, filename, columns):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=ROOT / "output_mas/disruption_sweep/snapshots.csv")
-    parser.add_argument("--output", type=Path, default=ROOT / "reports/disruption")
+    parser.add_argument("--input", type=Path, required=True, help="snapshots.csv from a completed shutdown run")
+    parser.add_argument("--output", type=Path, required=True, help="Destination for the regenerated cohort plots")
     parser.add_argument("--shutdown-day", type=int, default=360)
     args = parser.parse_args(argv)
     args.output.mkdir(parents=True, exist_ok=True)

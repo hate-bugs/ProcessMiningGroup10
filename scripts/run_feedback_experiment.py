@@ -32,7 +32,7 @@ def load_model():
             "class AdaptiveMiningModel(",
         )):
             exec(compile(text, "<notebook definitions>", "exec"), scope.__dict__)
-    # Execute only the params assignment from section 7, not the large baseline.
+    # Read the parameter assignment from section 7 without running the baseline.
     configuration = next(text for text in code if "params = MiningParams(" in text)
     tree = ast.parse(configuration)
     assignment = next(
@@ -53,14 +53,17 @@ class Tee(io.StringIO):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--smoke", action="store_true", help="Small pipeline check; not paper results")
+    parser.add_argument("--output", type=Path, help="New or empty export directory; existing results are preserved")
     parser.add_argument("--write-notebook", action="store_true", help="Embed executed section-13 outputs")
-    parser.add_argument("--validation-cache", help="Reuse matching validation scores; protocol, versions and model must match")
     args = parser.parse_args()
     if args.smoke and args.write_notebook:
         parser.error("Do not embed smoke-test outcomes as full notebook results")
+    output = args.output or ROOT / "output_mas" / ("checks/feedback_smoke" if args.smoke else "current/feedback")
+    if output.exists() and any(output.iterdir()):
+        parser.error("Output directory is not empty; use --output with a new directory")
     notebook, scope = load_model()
     scope.SMOKE_TEST = args.smoke
-    scope.VALIDATION_CACHE = args.validation_cache
+    scope.EXPERIMENT_OUTPUT = output
     outputs = []
 
     def display(value):

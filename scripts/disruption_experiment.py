@@ -14,8 +14,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from online_feedback_experiment import assigned_agents, bootstrap, metrics, online_protocol
-from process_policy import TransitionProcessAdviser
+from scripts.online_feedback_experiment import assigned_agents, bootstrap, metrics, online_protocol
+from scripts.process_policy import TransitionProcessAdviser
 
 
 DEFAULT_SEVERITIES = [0, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
@@ -285,7 +285,7 @@ def run_market(base_class, base_params, protocol, seed, percentage, family, swap
 
 
 def run_job(job):
-    # Each process loads the actual notebook definitions, not a duplicate model.
+    # Each worker loads the simulation definitions from the notebook.
     import contextlib
     import io
     from scripts.run_feedback_experiment import load_model
@@ -349,7 +349,7 @@ def export_results(results, protocol, output):
         from scripts.plot_disruption_cohorts import main as plot_cohorts
         plot_cohorts(["--input", str(output / "snapshots.csv"), "--output", str(output),
                       "--shutdown-day", str(protocol["shutdown_day"])])
-    from robustness_analysis import export_robustness_analysis
+    from scripts.robustness_analysis import export_robustness_analysis
     return export_robustness_analysis(frames, protocol, output)
 
 
@@ -412,8 +412,8 @@ def write_report(effects, audits, protocol, output):
 
 
 def manifest(protocol, completed=False):
-    names = ["notebook.ipynb", "mining_hardware.py", "process_policy.py", "online_feedback_experiment.py",
-             "disruption_experiment.py", "robustness_analysis.py", "scripts/run_disruption_experiment.py",
+    names = ["notebook.ipynb", "scripts/mining_hardware.py", "scripts/process_policy.py", "scripts/online_feedback_experiment.py",
+             "scripts/disruption_experiment.py", "scripts/robustness_analysis.py", "scripts/run_disruption_experiment.py",
              "scripts/plot_disruption_cohorts.py"]
     return dict(schema_version=2, protocol=protocol, completed=completed, simulation_rerun=True,
         design="Paired intervention study; fixed cohorts; no retuning",
